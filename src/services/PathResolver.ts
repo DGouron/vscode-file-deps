@@ -43,7 +43,12 @@ export class PathResolver {
 
     for (const [alias, targets] of Object.entries(paths)) {
       if (Array.isArray(targets) && targets.length > 0) {
-        const target = targets[0] as string;
+        let target = targets[0] as string;
+
+        // Normalize target path (remove leading ./)
+        if (target.startsWith("./")) {
+          target = target.slice(2);
+        }
 
         // Handle both "@/*" -> ["src/*"] and "@container" -> ["src/container"]
         let cleanAlias: string;
@@ -52,7 +57,7 @@ export class PathResolver {
         if (alias.endsWith("/*")) {
           // "@/*" -> "@/"
           cleanAlias = alias.slice(0, -1); // Remove trailing *
-          cleanTarget = target.slice(0, -1); // Remove trailing *
+          cleanTarget = target.endsWith("/*") ? target.slice(0, -1) : target.replace(/\*$/, "");
         } else if (alias.endsWith("*")) {
           // "@*" -> "@"
           cleanAlias = alias.slice(0, -1);
@@ -63,7 +68,16 @@ export class PathResolver {
           cleanTarget = target;
         }
 
-        const resolvedTarget = path.join(this.workspaceRoot, baseUrl, cleanTarget);
+        // Normalize baseUrl (remove leading ./)
+        let normalizedBaseUrl = baseUrl;
+        if (normalizedBaseUrl.startsWith("./")) {
+          normalizedBaseUrl = normalizedBaseUrl.slice(2);
+        }
+        if (normalizedBaseUrl === ".") {
+          normalizedBaseUrl = "";
+        }
+
+        const resolvedTarget = path.join(this.workspaceRoot, normalizedBaseUrl, cleanTarget);
         this.aliases.set(cleanAlias, resolvedTarget);
       }
     }
@@ -73,15 +87,33 @@ export class PathResolver {
 
   /**
    * Load tsconfig.json with extends support
+   * Searches in root and common subdirectories (frontend, src, app)
    */
   private loadTsConfig(rootDir: string): Record<string, unknown> | null {
-    const tsconfigPath = path.join(rootDir, "tsconfig.json");
+    // Try multiple locations for tsconfig.json
+    const possiblePaths = [
+      path.join(rootDir, "tsconfig.json"),
+      path.join(rootDir, "frontend", "tsconfig.json"),
+      path.join(rootDir, "src", "tsconfig.json"),
+      path.join(rootDir, "app", "tsconfig.json"),
+      path.join(rootDir, "client", "tsconfig.json"),
+    ];
+
+    let tsconfigPath: string | null = null;
+    for (const p of possiblePaths) {
+      if (fs.existsSync(p)) {
+        tsconfigPath = p;
+        // Update workspace root to tsconfig's directory
+        this.workspaceRoot = path.dirname(p);
+        break;
+      }
+    }
+
+    if (!tsconfigPath) {
+      return null;
+    }
 
     try {
-      if (!fs.existsSync(tsconfigPath)) {
-        return null;
-      }
-
       const content = fs.readFileSync(tsconfigPath, "utf-8");
       // Remove comments (single-line and trailing)
       const cleanContent = content
