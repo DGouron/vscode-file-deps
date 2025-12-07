@@ -86,12 +86,41 @@ export class PathResolver {
   }
 
   /**
+   * Search for tsconfig.json in immediate subfolders (depth 1)
+   * Excludes node_modules, .git, and hidden folders
+   */
+  private findTsConfigInSubfolders(rootDir: string): string | null {
+    const excludedFolders = new Set(["node_modules", ".git", "dist", "build", "coverage"]);
+
+    try {
+      const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (
+          entry.isDirectory() &&
+          !entry.name.startsWith(".") &&
+          !excludedFolders.has(entry.name)
+        ) {
+          const tsconfigPath = path.join(rootDir, entry.name, "tsconfig.json");
+          if (fs.existsSync(tsconfigPath)) {
+            return tsconfigPath;
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to search subfolders in ${rootDir}:`, error);
+    }
+
+    return null;
+  }
+
+  /**
    * Load tsconfig.json with extends support
-   * Searches in root and common subdirectories (frontend, src, app)
+   * Searches in root, common subdirectories, and immediate subfolders
    */
   private loadTsConfig(rootDir: string): Record<string, unknown> | null {
-    // Try multiple locations for tsconfig.json
-    const possiblePaths = [
+    // 1. Priority: common locations (performance)
+    const commonPaths = [
       path.join(rootDir, "tsconfig.json"),
       path.join(rootDir, "frontend", "tsconfig.json"),
       path.join(rootDir, "src", "tsconfig.json"),
@@ -100,18 +129,25 @@ export class PathResolver {
     ];
 
     let tsconfigPath: string | null = null;
-    for (const p of possiblePaths) {
+
+    for (const p of commonPaths) {
       if (fs.existsSync(p)) {
         tsconfigPath = p;
-        // Update workspace root to tsconfig's directory
-        this.workspaceRoot = path.dirname(p);
         break;
       }
+    }
+
+    // 2. If not found, search in immediate subfolders
+    if (!tsconfigPath) {
+      tsconfigPath = this.findTsConfigInSubfolders(rootDir);
     }
 
     if (!tsconfigPath) {
       return null;
     }
+
+    // Update workspace root to tsconfig's directory
+    this.workspaceRoot = path.dirname(tsconfigPath);
 
     try {
       const content = fs.readFileSync(tsconfigPath, "utf-8");
