@@ -39,7 +39,11 @@
         },
         {
           "id": "fileDepsCircular",
-          "name": "⚠️ Circular Dependencies"
+          "name": "⚠️ Circular (Current file)"
+        },
+        {
+          "id": "fileDepsAllCircular",
+          "name": "🔄 All Circular Dependencies"
         }
       ]
     },
@@ -58,7 +62,7 @@
       "view/title": [
         {
           "command": "fileDeps.refresh",
-          "when": "view == fileDepsOutgoing || view == fileDepsIncoming || view == fileDepsCircular",
+          "when": "view == fileDepsOutgoing || view == fileDepsIncoming || view == fileDepsCircular || view == fileDepsAllCircular",
           "group": "navigation"
         }
       ]
