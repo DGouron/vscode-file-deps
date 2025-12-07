@@ -2,7 +2,7 @@
   "name": "vscode-file-deps",
   "displayName": "File Dependencies Viewer",
   "description": "Display file dependencies in real-time as a Tree View. Shows imports, reverse dependencies, and circular dependency detection.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "DGouron",
   "license": "MIT",
   "repository": {
@@ -11,7 +11,7 @@
   },
   "icon": "icon.png",
   "engines": {
-    "vscode": "^1.106.0"
+    "vscode": "^1.105.0"
   },
   "categories": [
     "Other",
@@ -72,7 +72,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.10.1",
-    "@types/vscode": "^1.106.1",
+    "@types/vscode": "^1.105.0",
     "@vscode/vsce": "^3.7.1",
     "esbuild": "^0.27.1",
     "typescript": "^5.9.3"
