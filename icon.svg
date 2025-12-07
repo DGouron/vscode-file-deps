@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4FC3F7"/>
+      <stop offset="100%" style="stop-color:#2196F3"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background -->
+  <rect width="128" height="128" rx="16" fill="url(#bg)"/>
+
+  <!-- Central file icon -->
+  <g transform="translate(44, 30)">
+    <path d="M0 8 L0 52 Q0 56 4 56 L36 56 Q40 56 40 52 L40 16 L32 8 L4 8 Q0 8 0 12 Z" fill="white" opacity="0.95"/>
+    <path d="M32 8 L32 16 L40 16 Z" fill="#E3F2FD"/>
+    <rect x="8" y="22" width="24" height="3" rx="1" fill="#2196F3"/>
+    <rect x="8" y="30" width="20" height="3" rx="1" fill="#64B5F6"/>
+    <rect x="8" y="38" width="22" height="3" rx="1" fill="#64B5F6"/>
+    <rect x="8" y="46" width="16" height="3" rx="1" fill="#64B5F6"/>
+  </g>
+
+  <!-- Connection lines -->
+  <g stroke="white" stroke-width="2.5" fill="none" opacity="0.9">
+    <!-- Top left connection -->
+    <path d="M44 50 Q30 50 24 36"/>
+    <!-- Top right connection -->
+    <path d="M84 50 Q98 50 104 36"/>
+    <!-- Bottom left connection -->
+    <path d="M44 78 Q30 78 24 92"/>
+    <!-- Bottom right connection -->
+    <path d="M84 78 Q98 78 104 92"/>
+  </g>
+
+  <!-- Small dependency nodes -->
+  <!-- Top left -->
+  <circle cx="20" cy="28" r="10" fill="white" opacity="0.9"/>
+  <circle cx="20" cy="28" r="5" fill="#4FC3F7"/>
+
+  <!-- Top right -->
+  <circle cx="108" cy="28" r="10" fill="white" opacity="0.9"/>
+  <circle cx="108" cy="28" r="5" fill="#4FC3F7"/>
+
+  <!-- Bottom left -->
+  <circle cx="20" cy="100" r="10" fill="white" opacity="0.9"/>
+  <circle cx="20" cy="100" r="5" fill="#4FC3F7"/>
+
+  <!-- Bottom right -->
+  <circle cx="108" cy="100" r="10" fill="white" opacity="0.9"/>
+  <circle cx="108" cy="100" r="5" fill="#4FC3F7"/>
+
+  <!-- Circular arrow hint (for circular deps) -->
+  <g transform="translate(90, 85)" opacity="0.8">
+    <path d="M8 0 A8 8 0 1 1 0 8" stroke="#FFEB3B" stroke-width="2.5" fill="none"/>
+    <polygon points="0,5 0,11 5,8" fill="#FFEB3B"/>
+  </g>
+</svg>
