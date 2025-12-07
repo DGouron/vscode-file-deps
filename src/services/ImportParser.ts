@@ -58,9 +58,27 @@ export class ImportParser {
       return true;
     }
 
-    // Alias imports (e.g., @/, ~/src/)
+    // Alias imports from tsconfig paths
     for (const alias of this.aliasPatterns) {
       if (importPath.startsWith(alias)) {
+        return true;
+      }
+      // Also check exact match for aliases without trailing slash
+      if (importPath === alias || importPath.startsWith(alias + "/")) {
+        return true;
+      }
+    }
+
+    // Check for @ imports that look like aliases (not scoped npm packages)
+    // Scoped npm packages: @org/package (has slash after org name)
+    // Aliases: @components, @/utils, @router (configured in tsconfig)
+    if (importPath.startsWith("@")) {
+      const afterAt = importPath.slice(1);
+      // If no slash or slash is not after a "package-like" name, might be alias
+      // Let the resolver try to resolve it
+      const slashIndex = afterAt.indexOf("/");
+      if (slashIndex === -1) {
+        // @something without slash - likely an alias
         return true;
       }
     }

@@ -27,43 +27,105 @@ export class PathResolver {
   }
 
   /**
-   * Load path aliases from tsconfig.json
+   * Load path aliases from tsconfig.json (with extends support)
    */
   async loadAliases(): Promise<PathAliases> {
-    const tsconfigPath = path.join(this.workspaceRoot, "tsconfig.json");
+    const tsconfig = this.loadTsConfig(this.workspaceRoot);
+
+    if (!tsconfig) {
+      return { aliases: new Map(), baseUrl: "." };
+    }
+
+    const paths = tsconfig.compilerOptions?.paths || {};
+    const baseUrl = tsconfig.compilerOptions?.baseUrl || ".";
+
+    this.aliases.clear();
+
+    for (const [alias, targets] of Object.entries(paths)) {
+      if (Array.isArray(targets) && targets.length > 0) {
+        const target = targets[0] as string;
+
+        // Handle both "@/*" -> ["src/*"] and "@container" -> ["src/container"]
+        let cleanAlias: string;
+        let cleanTarget: string;
+
+        if (alias.endsWith("/*")) {
+          // "@/*" -> "@/"
+          cleanAlias = alias.slice(0, -1); // Remove trailing *
+          cleanTarget = target.slice(0, -1); // Remove trailing *
+        } else if (alias.endsWith("*")) {
+          // "@*" -> "@"
+          cleanAlias = alias.slice(0, -1);
+          cleanTarget = target.endsWith("*") ? target.slice(0, -1) : target;
+        } else {
+          // "@container" -> "@container"
+          cleanAlias = alias;
+          cleanTarget = target;
+        }
+
+        const resolvedTarget = path.join(this.workspaceRoot, baseUrl, cleanTarget);
+        this.aliases.set(cleanAlias, resolvedTarget);
+      }
+    }
+
+    return { aliases: this.aliases, baseUrl };
+  }
+
+  /**
+   * Load tsconfig.json with extends support
+   */
+  private loadTsConfig(rootDir: string): Record<string, unknown> | null {
+    const tsconfigPath = path.join(rootDir, "tsconfig.json");
 
     try {
       if (!fs.existsSync(tsconfigPath)) {
-        return { aliases: new Map(), baseUrl: "." };
+        return null;
       }
 
       const content = fs.readFileSync(tsconfigPath, "utf-8");
-      // Remove comments (simple approach for single-line comments)
-      const cleanContent = content.replace(/\/\/.*$/gm, "");
+      // Remove comments (single-line and trailing)
+      const cleanContent = content
+        .replace(/\/\/.*$/gm, "")
+        .replace(/,\s*([}\]])/g, "$1"); // Remove trailing commas
+
       const tsconfig = JSON.parse(cleanContent);
 
-      const paths = tsconfig.compilerOptions?.paths || {};
-      const baseUrl = tsconfig.compilerOptions?.baseUrl || ".";
+      // Handle extends
+      if (tsconfig.extends) {
+        const extendsPath = path.resolve(rootDir, tsconfig.extends);
+        const baseDir = path.dirname(extendsPath);
+        const baseName = path.basename(extendsPath);
+        const baseConfigPath = baseName.endsWith(".json")
+          ? extendsPath
+          : extendsPath + ".json";
 
-      this.aliases.clear();
+        if (fs.existsSync(baseConfigPath)) {
+          const baseContent = fs.readFileSync(baseConfigPath, "utf-8");
+          const cleanBaseContent = baseContent
+            .replace(/\/\/.*$/gm, "")
+            .replace(/,\s*([}\]])/g, "$1");
+          const baseConfig = JSON.parse(cleanBaseContent);
 
-      for (const [alias, targets] of Object.entries(paths)) {
-        if (Array.isArray(targets) && targets.length > 0) {
-          // "@/*" -> ["src/*"] => "@/" -> "/absolute/path/to/src/"
-          const cleanAlias = alias.replace("/*", "/");
-          const cleanTarget = (targets[0] as string).replace("/*", "/");
-          const resolvedTarget = path.join(
-            this.workspaceRoot,
-            baseUrl,
-            cleanTarget
-          );
-          this.aliases.set(cleanAlias, resolvedTarget);
+          // Merge configs (tsconfig overrides base)
+          return {
+            ...baseConfig,
+            ...tsconfig,
+            compilerOptions: {
+              ...baseConfig.compilerOptions,
+              ...tsconfig.compilerOptions,
+              paths: {
+                ...baseConfig.compilerOptions?.paths,
+                ...tsconfig.compilerOptions?.paths,
+              },
+            },
+          };
         }
       }
 
-      return { aliases: this.aliases, baseUrl };
-    } catch {
-      return { aliases: new Map(), baseUrl: "." };
+      return tsconfig;
+    } catch (e) {
+      console.error("Error loading tsconfig:", e);
+      return null;
     }
   }
 
@@ -71,35 +133,51 @@ export class PathResolver {
    * Get alias patterns for ImportParser
    */
   getAliasPatterns(): string[] {
-    return Array.from(this.aliases.keys());
+    const patterns: string[] = [];
+    for (const alias of this.aliases.keys()) {
+      // Add the alias as-is for matching
+      patterns.push(alias);
+      // Also add without trailing slash if it has one
+      if (alias.endsWith("/")) {
+        patterns.push(alias.slice(0, -1));
+      }
+    }
+    return patterns;
   }
 
   /**
    * Resolve an import path to an absolute file path
-   * @param importPath The import path (e.g., "./utils" or "@/lib/helper")
-   * @param fromFile The file containing the import (for relative resolution)
    */
   resolve(importPath: string, fromFile: string): string | null {
-    let basePath: string;
+    let basePath: string | undefined;
 
     // Handle relative imports
     if (importPath.startsWith("./") || importPath.startsWith("../")) {
       basePath = path.resolve(path.dirname(fromFile), importPath);
     } else {
-      // Handle alias imports
-      let resolved = false;
+      // Handle alias imports - find the best matching alias
+      let bestMatch = "";
+      let bestTarget = "";
+
       for (const [alias, target] of this.aliases) {
-        if (importPath.startsWith(alias)) {
-          basePath = importPath.replace(alias, target);
-          resolved = true;
-          break;
+        // Check if import starts with this alias
+        if (importPath === alias || importPath.startsWith(alias)) {
+          // Use the longest matching alias
+          if (alias.length > bestMatch.length) {
+            bestMatch = alias;
+            bestTarget = target;
+          }
         }
       }
 
-      if (!resolved) {
-        // Not a local or alias import
-        return null;
+      if (bestMatch) {
+        // Replace alias with target path
+        basePath = importPath.replace(bestMatch, bestTarget);
       }
+    }
+
+    if (!basePath) {
+      return null;
     }
 
     // Try to resolve with extensions
