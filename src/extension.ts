@@ -97,6 +97,19 @@ export async function activate(
     )
   );
 
+  // Register toggle circular mode command
+  context.subscriptions.push(
+    vscode.commands.registerCommand("fileDeps.toggleCircularMode", () => {
+      const currentMode = globalCircularProvider.getMode();
+      const newMode = currentMode === "cycles" ? "scc" : "cycles";
+      globalCircularProvider.setMode(newMode);
+
+      const modeLabel =
+        newMode === "cycles" ? "Cycles individuels" : "Groupes SCC";
+      vscode.window.showInformationMessage(`Mode: ${modeLabel}`);
+    })
+  );
+
   // Set initial file
   updateCurrentFile(vscode.window.activeTextEditor?.document.uri);
 }

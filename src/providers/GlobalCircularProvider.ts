@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import * as path from "path";
 import type { DependencyIndexer } from "../services/DependencyIndexer";
-import type { CycleInfo, CycleSeverity } from "../types";
+import type { CycleInfo, CycleSeverity, DetectionMode } from "../types";
 
 const SEVERITY_CONFIG: Record<
   CycleSeverity,
@@ -124,6 +124,39 @@ class InfoNode extends vscode.TreeItem {
 }
 
 /**
+ * Node displaying current detection mode with explanatory tooltip.
+ * Clicking toggles between modes.
+ */
+class ModeInfoNode extends vscode.TreeItem {
+  constructor(mode: DetectionMode) {
+    const label =
+      mode === "cycles"
+        ? "📊 Mode: Cycles individuels"
+        : "📊 Mode: Groupes connectés (SCC)";
+
+    super(label, vscode.TreeItemCollapsibleState.None);
+
+    this.tooltip =
+      mode === "cycles"
+        ? "Affiche chaque cycle distinct (A→B→A, A→C→A séparément).\n" +
+          "Plus précis pour identifier les vraies dépendances circulaires.\n\n" +
+          "Cliquez pour passer au mode SCC."
+        : "Affiche les groupes de fichiers mutuellement connectés (Tarjan SCC).\n" +
+          "Utile pour voir les clusters de dépendances,\n" +
+          "mais peut regrouper des cycles distincts.\n\n" +
+          "Cliquez pour passer au mode Cycles.";
+
+    this.iconPath = new vscode.ThemeIcon("symbol-parameter");
+    this.contextValue = "modeInfo";
+
+    this.command = {
+      command: "fileDeps.toggleCircularMode",
+      title: "Changer de mode",
+    };
+  }
+}
+
+/**
  * Tree data provider for displaying ALL circular dependencies grouped by severity.
  */
 export class GlobalCircularProvider
@@ -140,10 +173,27 @@ export class GlobalCircularProvider
     low: [],
   };
 
+  private detectionMode: DetectionMode = "cycles";
+
   constructor(private readonly indexer: DependencyIndexer) {}
 
+  /**
+   * Set the detection mode and refresh the view.
+   */
+  setMode(mode: DetectionMode): void {
+    this.detectionMode = mode;
+    this.refresh();
+  }
+
+  /**
+   * Get the current detection mode.
+   */
+  getMode(): DetectionMode {
+    return this.detectionMode;
+  }
+
   refresh(): void {
-    this.cyclesBySeverity = this.indexer.getCyclesBySeverity();
+    this.cyclesBySeverity = this.indexer.getCyclesBySeverity(this.detectionMode);
     this._onDidChangeTreeData.fire();
   }
 
@@ -183,8 +233,12 @@ export class GlobalCircularProvider
       return [];
     }
 
-    // Root level - return severity groups
+    // Root level - return mode info + severity groups
     const workspaceRoot = this.indexer.getPathResolver().getWorkspaceRoot();
+    const items: vscode.TreeItem[] = [];
+
+    // Always show mode info node first (clickable to toggle)
+    items.push(new ModeInfoNode(this.detectionMode));
 
     // Check if any cycles exist
     const totalCycles =
@@ -193,21 +247,21 @@ export class GlobalCircularProvider
       this.cyclesBySeverity.low.length;
 
     if (totalCycles === 0) {
-      return [new InfoNode("Aucune dépendance circulaire", true)];
+      items.push(new InfoNode("Aucune dépendance circulaire", true));
+      return items;
     }
 
     // Return severity groups (only non-empty ones, but always show Critical first)
-    const groups: SeverityGroupNode[] = [];
     const severities: CycleSeverity[] = ["critical", "moderate", "low"];
 
     for (const severity of severities) {
       const cycles = this.cyclesBySeverity[severity];
       // Always show the group if it has cycles
       if (cycles.length > 0) {
-        groups.push(new SeverityGroupNode(severity, cycles, workspaceRoot));
+        items.push(new SeverityGroupNode(severity, cycles, workspaceRoot));
       }
     }
 
-    return groups;
+    return items;
   }
 }

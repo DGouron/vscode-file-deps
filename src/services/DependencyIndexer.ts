@@ -2,7 +2,12 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { ImportParser } from "./ImportParser";
 import { PathResolver } from "./PathResolver";
-import type { DependencyIndex, CycleInfo, CycleSeverity } from "../types";
+import type {
+  DependencyIndex,
+  CycleInfo,
+  CycleSeverity,
+  DetectionMode,
+} from "../types";
 
 /**
  * Indexes all file dependencies in the workspace.
@@ -233,11 +238,94 @@ export class DependencyIndexer {
   }
 
   /**
-   * Find ALL circular dependencies in the entire project using Tarjan's SCC algorithm.
+   * Find ALL circular dependencies in the entire project.
+   * @param mode - Detection mode: "cycles" for individual cycles, "scc" for strongly connected components
    * Returns cycles with severity information, sorted by criticality (most critical first).
    */
-  getAllCircularDependencies(): CycleInfo[] {
-    const allCycles = this.findAllCyclesWithTarjan();
+  getAllCircularDependencies(mode: DetectionMode = "cycles"): CycleInfo[] {
+    const allCycles =
+      mode === "scc"
+        ? this.findAllCyclesWithTarjan()
+        : this.findAllIndividualCycles();
+
+    return this.convertToCycleInfos(allCycles);
+  }
+
+  /**
+   * Find all individual cycles using DFS.
+   * Returns actual cycles (A→B→C→A), not just SCCs.
+   */
+  private findAllIndividualCycles(): string[][] {
+    const allCycles: string[][] = [];
+    const cycleKeys = new Set<string>();
+
+    for (const startNode of this.index.forward.keys()) {
+      const visited = new Set<string>();
+      const currentPath: string[] = [];
+
+      const dfs = (current: string): void => {
+        if (currentPath.includes(current)) {
+          // Found a cycle - extract it
+          const cycleStart = currentPath.indexOf(current);
+          const cycle = [...currentPath.slice(cycleStart), current];
+
+          // Normalize and deduplicate
+          const key = this.normalizeCycleKey(cycle);
+          if (!cycleKeys.has(key)) {
+            cycleKeys.add(key);
+            allCycles.push(cycle.slice(0, -1)); // Remove last element (duplicate of first)
+          }
+          return;
+        }
+
+        if (visited.has(current)) {
+          return;
+        }
+
+        visited.add(current);
+        currentPath.push(current);
+
+        const deps = this.index.forward.get(current);
+        if (deps) {
+          for (const dep of deps) {
+            dfs(dep);
+          }
+        }
+
+        currentPath.pop();
+      };
+
+      dfs(startNode);
+    }
+
+    return allCycles;
+  }
+
+  /**
+   * Normalize a cycle to a unique key for deduplication.
+   * Cycles are normalized by starting from the smallest path alphabetically.
+   */
+  private normalizeCycleKey(cycle: string[]): string {
+    const withoutLast = cycle.slice(0, -1);
+    if (withoutLast.length === 0) return "";
+
+    const minIndex = withoutLast.reduce(
+      (minIdx, path, idx, arr) => (path < arr[minIdx] ? idx : minIdx),
+      0
+    );
+
+    const normalized = [
+      ...withoutLast.slice(minIndex),
+      ...withoutLast.slice(0, minIndex),
+    ];
+
+    return normalized.join(" -> ");
+  }
+
+  /**
+   * Convert raw cycles to CycleInfo with severity calculation.
+   */
+  private convertToCycleInfos(allCycles: string[][]): CycleInfo[] {
     const totalFiles = this.index.forward.size;
 
     const cycleInfos: CycleInfo[] = allCycles.map((files) => {
@@ -378,9 +466,12 @@ export class DependencyIndexer {
 
   /**
    * Get cycles grouped by severity level
+   * @param mode - Detection mode: "cycles" for individual cycles, "scc" for strongly connected components
    */
-  getCyclesBySeverity(): Record<CycleSeverity, CycleInfo[]> {
-    const allCycles = this.getAllCircularDependencies();
+  getCyclesBySeverity(
+    mode: DetectionMode = "cycles"
+  ): Record<CycleSeverity, CycleInfo[]> {
+    const allCycles = this.getAllCircularDependencies(mode);
 
     return {
       critical: allCycles.filter((c) => c.severity === "critical"),

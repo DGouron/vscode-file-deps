@@ -56,6 +56,11 @@
       {
         "command": "fileDeps.openFile",
         "title": "File Deps: Open File"
+      },
+      {
+        "command": "fileDeps.toggleCircularMode",
+        "title": "File Deps: Toggle Detection Mode (Cycles/SCC)",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
@@ -63,6 +68,11 @@
         {
           "command": "fileDeps.refresh",
           "when": "view == fileDepsOutgoing || view == fileDepsIncoming || view == fileDepsCircular || view == fileDepsAllCircular",
+          "group": "navigation"
+        },
+        {
+          "command": "fileDeps.toggleCircularMode",
+          "when": "view == fileDepsAllCircular",
           "group": "navigation"
         }
       ]

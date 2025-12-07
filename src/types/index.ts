@@ -31,6 +31,9 @@ export interface PathAliases {
 /** Severity level for circular dependencies */
 export type CycleSeverity = "critical" | "moderate" | "low";
 
+/** Detection mode for circular dependencies */
+export type DetectionMode = "cycles" | "scc";
+
 /** Information about a circular dependency cycle */
 export interface CycleInfo {
   /** Files involved in the cycle */
