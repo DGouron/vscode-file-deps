@@ -27,3 +27,21 @@ export interface PathAliases {
   /** The base URL from tsconfig */
   baseUrl: string;
 }
+
+/** Severity level for circular dependencies */
+export type CycleSeverity = "critical" | "moderate" | "low";
+
+/** Detection mode for circular dependencies */
+export type DetectionMode = "cycles" | "scc";
+
+/** Information about a circular dependency cycle */
+export interface CycleInfo {
+  /** Files involved in the cycle */
+  files: string[];
+  /** Severity level based on cycle length and impact */
+  severity: CycleSeverity;
+  /** Numeric score for sorting (higher = more critical) */
+  score: number;
+  /** Number of files that depend on files in this cycle */
+  dependentCount: number;
+}

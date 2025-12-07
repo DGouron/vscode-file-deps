@@ -2,7 +2,12 @@ import * as vscode from "vscode";
 import * as fs from "fs";
 import { ImportParser } from "./ImportParser";
 import { PathResolver } from "./PathResolver";
-import type { DependencyIndex } from "../types";
+import type {
+  DependencyIndex,
+  CycleInfo,
+  CycleSeverity,
+  DetectionMode,
+} from "../types";
 
 /**
  * Indexes all file dependencies in the workspace.
@@ -230,5 +235,248 @@ export class DependencyIndexer {
     }
 
     return unique;
+  }
+
+  /**
+   * Find ALL circular dependencies in the entire project.
+   * @param mode - Detection mode: "cycles" for individual cycles, "scc" for strongly connected components
+   * Returns cycles with severity information, sorted by criticality (most critical first).
+   */
+  getAllCircularDependencies(mode: DetectionMode = "cycles"): CycleInfo[] {
+    const allCycles =
+      mode === "scc"
+        ? this.findAllCyclesWithTarjan()
+        : this.findAllIndividualCycles();
+
+    return this.convertToCycleInfos(allCycles);
+  }
+
+  /**
+   * Find all individual cycles using DFS.
+   * Returns actual cycles (A→B→C→A), not just SCCs.
+   */
+  private findAllIndividualCycles(): string[][] {
+    const allCycles: string[][] = [];
+    const cycleKeys = new Set<string>();
+
+    for (const startNode of this.index.forward.keys()) {
+      const visited = new Set<string>();
+      const currentPath: string[] = [];
+
+      const dfs = (current: string): void => {
+        if (currentPath.includes(current)) {
+          // Found a cycle - extract it
+          const cycleStart = currentPath.indexOf(current);
+          const cycle = [...currentPath.slice(cycleStart), current];
+
+          // Normalize and deduplicate
+          const key = this.normalizeCycleKey(cycle);
+          if (!cycleKeys.has(key)) {
+            cycleKeys.add(key);
+            allCycles.push(cycle.slice(0, -1)); // Remove last element (duplicate of first)
+          }
+          return;
+        }
+
+        if (visited.has(current)) {
+          return;
+        }
+
+        visited.add(current);
+        currentPath.push(current);
+
+        const deps = this.index.forward.get(current);
+        if (deps) {
+          for (const dep of deps) {
+            dfs(dep);
+          }
+        }
+
+        currentPath.pop();
+      };
+
+      dfs(startNode);
+    }
+
+    return allCycles;
+  }
+
+  /**
+   * Normalize a cycle to a unique key for deduplication.
+   * Cycles are normalized by starting from the smallest path alphabetically.
+   */
+  private normalizeCycleKey(cycle: string[]): string {
+    const withoutLast = cycle.slice(0, -1);
+    if (withoutLast.length === 0) return "";
+
+    const minIndex = withoutLast.reduce(
+      (minIdx, path, idx, arr) => (path < arr[minIdx] ? idx : minIdx),
+      0
+    );
+
+    const normalized = [
+      ...withoutLast.slice(minIndex),
+      ...withoutLast.slice(0, minIndex),
+    ];
+
+    return normalized.join(" -> ");
+  }
+
+  /**
+   * Convert raw cycles to CycleInfo with severity calculation.
+   */
+  private convertToCycleInfos(allCycles: string[][]): CycleInfo[] {
+    const totalFiles = this.index.forward.size;
+
+    const cycleInfos: CycleInfo[] = allCycles.map((files) => {
+      const dependentCount = this.countDependentsForCycle(files);
+      const { severity, score } = this.calculateCycleSeverity(
+        files.length,
+        dependentCount,
+        totalFiles
+      );
+
+      return {
+        files,
+        severity,
+        score,
+        dependentCount,
+      };
+    });
+
+    // Sort by score descending (most critical first)
+    return cycleInfos.sort((a, b) => b.score - a.score);
+  }
+
+  /**
+   * Find all cycles using Tarjan's Strongly Connected Components algorithm.
+   * Returns SCCs with more than one node (which indicate cycles).
+   */
+  private findAllCyclesWithTarjan(): string[][] {
+    let index = 0;
+    const stack: string[] = [];
+    const onStack = new Set<string>();
+    const indices = new Map<string, number>();
+    const lowLinks = new Map<string, number>();
+    const sccs: string[][] = [];
+
+    const strongConnect = (node: string): void => {
+      indices.set(node, index);
+      lowLinks.set(node, index);
+      index++;
+      stack.push(node);
+      onStack.add(node);
+
+      const successors = this.index.forward.get(node);
+      if (successors) {
+        for (const successor of successors) {
+          if (!indices.has(successor)) {
+            strongConnect(successor);
+            lowLinks.set(
+              node,
+              Math.min(lowLinks.get(node)!, lowLinks.get(successor)!)
+            );
+          } else if (onStack.has(successor)) {
+            lowLinks.set(
+              node,
+              Math.min(lowLinks.get(node)!, indices.get(successor)!)
+            );
+          }
+        }
+      }
+
+      // If node is a root node, pop the stack and generate an SCC
+      if (lowLinks.get(node) === indices.get(node)) {
+        const scc: string[] = [];
+        let w: string;
+        do {
+          w = stack.pop()!;
+          onStack.delete(w);
+          scc.push(w);
+        } while (w !== node);
+
+        // Only keep SCCs with more than one node (actual cycles)
+        if (scc.length > 1) {
+          sccs.push(scc);
+        }
+      }
+    };
+
+    // Run Tarjan on all nodes
+    for (const node of this.index.forward.keys()) {
+      if (!indices.has(node)) {
+        strongConnect(node);
+      }
+    }
+
+    return sccs;
+  }
+
+  /**
+   * Count how many files depend on any file in the cycle
+   * (excluding files that are part of the cycle itself)
+   */
+  private countDependentsForCycle(cycleFiles: string[]): number {
+    const cycleSet = new Set(cycleFiles);
+    const dependents = new Set<string>();
+
+    for (const file of cycleFiles) {
+      const fileDependents = this.index.reverse.get(file);
+      if (fileDependents) {
+        for (const dep of fileDependents) {
+          if (!cycleSet.has(dep)) {
+            dependents.add(dep);
+          }
+        }
+      }
+    }
+
+    return dependents.size;
+  }
+
+  /**
+   * Calculate severity based on cycle length and number of dependents.
+   * Shorter cycles with more dependents are more critical.
+   */
+  private calculateCycleSeverity(
+    cycleLength: number,
+    dependentCount: number,
+    totalFiles: number
+  ): { severity: CycleSeverity; score: number } {
+    // Score formula:
+    // - Shorter cycles = more critical (weight: 40%)
+    // - More dependents = more critical (weight: 60%)
+    const lengthScore = cycleLength <= 2 ? 1 : cycleLength <= 4 ? 0.6 : 0.3;
+    const dependentScore =
+      totalFiles > 0 ? Math.min(dependentCount / totalFiles, 1) : 0;
+
+    const score = lengthScore * 0.4 + dependentScore * 0.6;
+
+    let severity: CycleSeverity;
+    if (score >= 0.5) {
+      severity = "critical";
+    } else if (score >= 0.25) {
+      severity = "moderate";
+    } else {
+      severity = "low";
+    }
+
+    return { severity, score };
+  }
+
+  /**
+   * Get cycles grouped by severity level
+   * @param mode - Detection mode: "cycles" for individual cycles, "scc" for strongly connected components
+   */
+  getCyclesBySeverity(
+    mode: DetectionMode = "cycles"
+  ): Record<CycleSeverity, CycleInfo[]> {
+    const allCycles = this.getAllCircularDependencies(mode);
+
+    return {
+      critical: allCycles.filter((c) => c.severity === "critical"),
+      moderate: allCycles.filter((c) => c.severity === "moderate"),
+      low: allCycles.filter((c) => c.severity === "low"),
+    };
   }
 }

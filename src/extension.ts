@@ -1,11 +1,13 @@
 import * as vscode from "vscode";
 import { DependencyTreeProvider } from "./providers/DependencyTreeProvider";
 import { CircularDependencyProvider } from "./providers/CircularDependencyProvider";
+import { GlobalCircularProvider } from "./providers/GlobalCircularProvider";
 import { DependencyIndexer } from "./services/DependencyIndexer";
 
 let outgoingProvider: DependencyTreeProvider;
 let incomingProvider: DependencyTreeProvider;
 let circularProvider: CircularDependencyProvider;
+let globalCircularProvider: GlobalCircularProvider;
 let indexer: DependencyIndexer;
 
 export async function activate(
@@ -29,11 +31,16 @@ export async function activate(
   outgoingProvider = new DependencyTreeProvider("outgoing", indexer);
   incomingProvider = new DependencyTreeProvider("incoming", indexer);
   circularProvider = new CircularDependencyProvider(indexer);
+  globalCircularProvider = new GlobalCircularProvider(indexer);
 
   // Register tree views
   vscode.window.registerTreeDataProvider("fileDepsOutgoing", outgoingProvider);
   vscode.window.registerTreeDataProvider("fileDepsIncoming", incomingProvider);
   vscode.window.registerTreeDataProvider("fileDepsCircular", circularProvider);
+  vscode.window.registerTreeDataProvider(
+    "fileDepsAllCircular",
+    globalCircularProvider
+  );
 
   // Index workspace in background
   vscode.window.withProgress(
@@ -46,6 +53,7 @@ export async function activate(
       await indexer.indexWorkspace();
       // Refresh views after indexing
       updateCurrentFile(vscode.window.activeTextEditor?.document.uri);
+      globalCircularProvider.refresh();
     }
   );
 
@@ -65,6 +73,7 @@ export async function activate(
         outgoingProvider.refresh();
         incomingProvider.refresh();
         circularProvider.refresh();
+        globalCircularProvider.refresh();
       }
     })
   );
@@ -74,6 +83,7 @@ export async function activate(
     vscode.commands.registerCommand("fileDeps.refresh", async () => {
       await indexer.indexWorkspace();
       updateCurrentFile(vscode.window.activeTextEditor?.document.uri);
+      globalCircularProvider.refresh();
     })
   );
 
@@ -85,6 +95,19 @@ export async function activate(
         await vscode.window.showTextDocument(uri);
       }
     )
+  );
+
+  // Register toggle circular mode command
+  context.subscriptions.push(
+    vscode.commands.registerCommand("fileDeps.toggleCircularMode", () => {
+      const currentMode = globalCircularProvider.getMode();
+      const newMode = currentMode === "cycles" ? "scc" : "cycles";
+      globalCircularProvider.setMode(newMode);
+
+      const modeLabel =
+        newMode === "cycles" ? "Cycles individuels" : "Groupes SCC";
+      vscode.window.showInformationMessage(`Mode: ${modeLabel}`);
+    })
   );
 
   // Set initial file

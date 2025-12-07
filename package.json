@@ -2,7 +2,7 @@
   "name": "vscode-file-deps",
   "displayName": "File Dependencies Viewer",
   "description": "Display file dependencies in real-time as a Tree View. Shows imports, reverse dependencies, and circular dependency detection.",
-  "version": "0.1.4",
+  "version": "0.2.1",
   "publisher": "DGouron",
   "license": "MIT",
   "repository": {
@@ -39,7 +39,11 @@
         },
         {
           "id": "fileDepsCircular",
-          "name": "⚠️ Circular Dependencies"
+          "name": "⚠️ Circular (Current file)"
+        },
+        {
+          "id": "fileDepsAllCircular",
+          "name": "🔄 All Circular Dependencies"
         }
       ]
     },
@@ -52,13 +56,23 @@
       {
         "command": "fileDeps.openFile",
         "title": "File Deps: Open File"
+      },
+      {
+        "command": "fileDeps.toggleCircularMode",
+        "title": "File Deps: Toggle Detection Mode (Cycles/SCC)",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "fileDeps.refresh",
-          "when": "view == fileDepsOutgoing || view == fileDepsIncoming || view == fileDepsCircular",
+          "when": "view == fileDepsOutgoing || view == fileDepsIncoming || view == fileDepsCircular || view == fileDepsAllCircular",
+          "group": "navigation"
+        },
+        {
+          "command": "fileDeps.toggleCircularMode",
+          "when": "view == fileDepsAllCircular",
           "group": "navigation"
         }
       ]
